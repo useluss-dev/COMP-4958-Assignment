@@ -6,7 +6,8 @@ defmodule Chat.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      Chat.Server
+      Chat.Server,
+      {Chat.Proxy, 6666}
     ]
 
     opts = [strategy: :one_for_one, name: Chat.Supervisor]

@@ -24,6 +24,7 @@ defmodule Chat.Proxy do
 
     {:ok, pid} = Chat.Proxy.Worker.start(socket)
     :gen_tcp.controlling_process(socket, pid)
+    Chat.Proxy.Worker.activate(pid)
 
     send(self(), :accept)
     {:noreply, listen}

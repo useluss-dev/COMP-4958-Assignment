@@ -25,14 +25,15 @@ fn main() {
         let reader = BufReader::new(read_half);
         for line in reader.lines() {
             match line {
-                Ok(l) => println!("{l}"),
+                Ok(l) => println!("\r\x1b[2K{l}"),
                 Err(e) => {
-                    eprintln!("read error: {e}");
+                    eprintln!("\r\x1b[2Kread error: {e}");
                     break;
                 }
             }
         }
-        println!("server closed the connection");
+        println!("\r\x1b[2Kserver closed the connection");
+        process::exit(1)
     });
 
     let stdin = io::stdin();

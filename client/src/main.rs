@@ -1,72 +1,63 @@
-use std::{
-    io::{self, BufRead, BufReader, Write},
-    net::{Shutdown, TcpStream},
-    process, thread,
-};
+/// Application.
+pub mod app;
 
-fn main() {
-    let mut stream = match TcpStream::connect("127.0.0.1:6666") {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Failed to connect: {e}");
-            process::exit(1);
-        }
-    };
+/// Terminal events handler.
+pub mod event;
 
-    let read_half = match stream.try_clone() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Could not clone stream: {e}");
-            process::exit(1);
-        }
-    };
+/// Widget renderer.
+pub mod ui;
 
-    let reader_thread = thread::spawn(move || {
-        let reader = BufReader::new(read_half);
-        for line in reader.lines() {
-            match line {
-                Ok(l) => println!("\r\x1b[2K{l}"),
-                Err(e) => {
-                    eprintln!("\r\x1b[2Kread error: {e}");
-                    break;
-                }
-            }
-        }
-        println!("\r\x1b[2Kserver closed the connection");
-        process::exit(1)
-    });
+/// Terminal user interface.
+pub mod tui;
 
-    let stdin = io::stdin();
-    prompt();
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!("stdin error: {e}");
-                break;
-            }
+/// Application updater.
+pub mod update;
+
+use std::net::TcpStream;
+
+use app::App;
+use color_eyre::{Result, eyre::WrapErr};
+use event::{Event, EventHandler};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use tui::Tui;
+use update::{update, update_mouse};
+
+const ADDR: &str = "127.0.0.1:6666";
+const TICK_RATE_MS: u64 = 250;
+
+fn main() -> Result<()> {
+    color_eyre::install()?;
+
+    // Connect before entering the alternate screen so errors print normally.
+    let stream =
+        TcpStream::connect(ADDR).wrap_err_with(|| format!("failed to connect to {ADDR}"))?;
+
+    // The event handler gets its own handle on the socket for the reader thread.
+    let events = EventHandler::new(TICK_RATE_MS, stream.try_clone()?);
+    let mut app = App::new(stream);
+
+    // Initialize the terminal user interface.
+    let backend = CrosstermBackend::new(std::io::stderr());
+    let terminal = Terminal::new(backend)?;
+    let mut tui = Tui::new(terminal, events);
+    tui.enter()?;
+
+    // Start the main loop.
+    while !app.should_quit {
+        // Render the user interface.
+        tui.draw(&mut app)?;
+        // Handle events.
+        match tui.events.next()? {
+            Event::Tick | Event::Resize(_, _) => {}
+            Event::Key(key_event) => update(&mut app, key_event),
+            Event::Mouse(mouse_event) => update_mouse(&mut app, mouse_event),
+            Event::Server(line) => app.receive(line),
+            Event::Disconnected => app.disconnected(),
         };
-
-        if let Err(e) = stream.write_all(format!("{line}\n").as_bytes()) {
-            eprintln!("write error: {e}");
-            break;
-        }
-
-        prompt();
     }
 
-    if let Err(e) = stream.shutdown(Shutdown::Write) {
-        eprintln!("shutdown error: {e}");
-    }
-
-    if reader_thread.join().is_err() {
-        eprintln!("reader thread panicked");
-    }
-}
-
-fn prompt() {
-    print!("> ");
-    if let Err(e) = io::stdout().flush() {
-        eprintln!("flush error: {e}");
-    }
+    // Exit the user interface.
+    tui.exit()?;
+    app.close();
+    Ok(())
 }

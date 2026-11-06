@@ -19,9 +19,10 @@ defmodule Chat.Server do
     GenServer.call(@name, {:set, pid, nick})
   end
 
-  @spec send_message(pid(), String.t(), String.t()) :: :ok | {:error, :no_nick | :no_such_user}
-  def send_message(from_pid, to_nick, text) do
-    GenServer.call(@name, {:msg, from_pid, to_nick, text})
+  # Delivers to every listed nick that has a pid and is active. Everything else is skipped
+  @spec send_message(pid(), String.t() | [String.t()], String.t()) :: :ok | {:error, :no_nick}
+  def send_message(from_pid, to_nicks, text) do
+    GenServer.call(@name, {:msg, from_pid, List.wrap(to_nicks), text})
   end
 
   @spec list_nicks() :: [String.t()]
@@ -43,11 +44,10 @@ defmodule Chat.Server do
     {:reply, result, state}
   end
 
-  def handle_call({:msg, from_pid, to_nick, text}, _from, state) do
+  def handle_call({:msg, from_pid, to_nicks, text}, _from, state) do
     reply =
-      with {:ok, from_nick} <- nick_of(state.nicks, from_pid),
-           {:ok, to_pid} <- pid_of(state.nicks, to_nick) do
-        Chat.Proxy.Worker.deliver(to_pid, "[#{from_nick}] #{text}")
+      with {:ok, from_nick} <- nick_of(state.nicks, from_pid) do
+        deliver_all(state.nicks, to_nicks, "[#{from_nick}] #{text}")
       end
 
     {:reply, reply, state}
@@ -66,6 +66,15 @@ defmodule Chat.Server do
   end
 
   # Internal
+
+  @spec deliver_all(:ets.table(), [String.t()], String.t()) :: :ok
+  defp deliver_all(table, nicks, message) do
+    for nick <- Enum.uniq(nicks), {:ok, pid} <- [pid_of(table, nick)] do
+      Chat.Proxy.Worker.deliver(pid, message)
+    end
+
+    :ok
+  end
 
   @spec put_nick(:ets.table(), pid(), String.t()) :: set_result()
   defp put_nick(table, pid, nick) do

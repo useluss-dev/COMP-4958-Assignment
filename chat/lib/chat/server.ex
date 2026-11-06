@@ -45,8 +45,8 @@ defmodule Chat.Server do
 
   def handle_call({:msg, from_pid, to_nick, text}, _from, state) do
     reply =
-      with {:ok, from_nick} <- nick_of(state.nick, from_pid),
-           {:ok, to_pid} <- pid_of(state.nick, to_nick) do
+      with {:ok, from_nick} <- nick_of(state.nicks, from_pid),
+           {:ok, to_pid} <- pid_of(state.nicks, to_nick) do
         Chat.Proxy.Worker.deliver(to_pid, "[#{from_nick}] #{text}")
       end
 
@@ -92,6 +92,7 @@ defmodule Chat.Server do
     end
   end
 
+  @spec nick_of(:ets.table(), pid()) :: {:ok, String.t()} | {:error, :no_nick}
   defp nick_of(table, pid) do
     case :ets.select(table, [{{:"$1", pid}, [], [:"$1"]}]) do
       [nick] -> {:ok, nick}

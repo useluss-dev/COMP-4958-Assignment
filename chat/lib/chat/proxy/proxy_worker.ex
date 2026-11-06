@@ -2,11 +2,17 @@ defmodule Chat.Proxy.Worker do
   use GenServer
   require Logger
 
+  @nick_regex ~r/\A[a-z][a-zA-Z0-9_]*\z/
+
   defmodule State do
     @enforce_keys [:socket]
-    defstruct [:socket, nick: nil]
+    defstruct [:socket, nick: nil, groups: %{"default" => []}]
 
-    @type t :: %__MODULE__{socket: :gen_tcp.socket(), nick: String.t() | nil}
+    @type t :: %__MODULE__{
+            socket: :gen_tcp.socket(),
+            nick: String.t() | nil,
+            groups: %{String.t() => String.t()}
+          }
   end
 
   @spec start(:gen_tcp.socket()) :: GenServer.on_start()
@@ -64,8 +70,8 @@ defmodule Chat.Proxy.Worker do
   # Handle /L Command
   defp handle_command(state, "/L", _args) do
     case Chat.Server.list_nicks() do
-      [] -> send_line(state.socket, "no users online")
-      nicks -> send_line(state.socket, "online:\n" <> Enum.join(nicks, "\n"))
+      [] -> tell(state, "no users online")
+      nicks -> tell(state, "online:\n" <> Enum.join(nicks, "\n"))
     end
 
     state
@@ -73,47 +79,61 @@ defmodule Chat.Proxy.Worker do
 
   # Handle /N Command
   defp handle_command(%State{} = state, "/N", [nick | _args]) do
-    case Chat.Server.set_nick(self(), nick) do
-      {:ok, :new} ->
-        send_line(state.socket, "nickname successfully set to #{nick}")
-        %State{state | nick: nick}
+    if valid_nick?(nick) do
+      case Chat.Server.set_nick(self(), nick) do
+        {:ok, :new} ->
+          tell(%State{state | nick: nick}, "nickname successfully set to #{nick}")
 
-      {:ok, :updated} ->
-        send_line(state.socket, "nickname successfully updated to #{nick}")
-        %State{state | nick: nick}
+        {:ok, :updated} ->
+          tell(%State{state | nick: nick}, "nickname successfully updated to #{nick}")
 
-      {:ok, :unchanged} ->
-        send_line(state.socket, "you already have the nickname #{nick}")
-        state
+        {:ok, :unchanged} ->
+          tell(state, "you already have the nickname #{nick}")
 
-      {:error, :taken} ->
-        send_line(state.socket, "#{nick} is already taken please try another name")
-        state
+        {:error, :taken} ->
+          tell(state, "#{nick} is already taken please try another name")
+      end
+    else
+      tell(
+        state,
+        "valid nicknames must start with a lowercase and only contain alphanumeric and underscore characters"
+      )
     end
   end
 
   defp handle_command(state, "/N", []) do
-    send_line(state.socket, "usage: /N <nickname>")
+    tell(state, "usage: /N <nickname>")
     state
   end
 
   # Handle calling commands without nickname
   defp handle_command(%State{nick: nil} = state, cmd, _args)
        when cmd in ["/M", "/B", "/D", "/G"] do
-    send_line(state.socket, "set a nickname first with /N <nickname")
+    tell(state, "set a nickname first with /N <nickname")
   end
 
   # Handle invalid command
   defp handle_command(state, cmd, _args) do
-    send_line(state.socket, "#{cmd} is an invalid command")
+    tell(state, "#{cmd} is an invalid command")
     state
   end
 
   # Send text to client
+  @spec send_line(:gen_tcp.socket(), String.t()) :: :ok | {:error, String.t()}
   defp send_line(socket, text) do
     case :gen_tcp.send(socket, text <> "\n") do
       :ok -> :ok
       {:error, reason} -> Logger.warning("send failed: #{inspect(reason)}")
     end
   end
+
+  # Send a line to this client and hand the state back, so handlers can end with it.
+  @spec tell(State.t(), String.t()) :: State.t()
+  defp tell(%State{} = state, text) do
+    send_line(state.socket, text)
+    state
+  end
+
+  @spec valid_nick?(String.t()) :: boolean()
+  defp valid_nick?(nick), do: nick =~ @nick_regex
 end

@@ -38,7 +38,9 @@ defmodule Chat.Server do
 
   @impl true
   def handle_call({:set, pid, nick}, _from, state) do
-    {:reply, put_nick(state.nicks, pid, nick), state}
+    result = put_nick(state.nicks, pid, nick)
+    if result == {:ok, :new}, do: Process.monitor(pid)
+    {:reply, result, state}
   end
 
   def handle_call({:msg, from_pid, to_nick, text}, _from, state) do
@@ -55,6 +57,12 @@ defmodule Chat.Server do
     nicks = state.nicks |> :ets.select([{{:"$1", :_}, [], [:"$1"]}]) |> Enum.sort()
 
     {:reply, nicks, state}
+  end
+
+  @impl true
+  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
+    :ets.select_delete(state.nicks, [{{:_, pid}, [], [true]}])
+    {:noreply, state}
   end
 
   # Internal
@@ -76,6 +84,7 @@ defmodule Chat.Server do
     if had_nick?, do: {:ok, :updated}, else: {:ok, :new}
   end
 
+  @spec pid_of(:ets.table(), String.t()) :: {:ok, pid()} | {:error, :no_such_user}
   defp pid_of(table, nick) do
     case :ets.lookup(table, nick) do
       [{^nick, pid}] -> {:ok, pid}

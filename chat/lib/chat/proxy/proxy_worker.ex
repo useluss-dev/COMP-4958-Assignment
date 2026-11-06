@@ -55,11 +55,26 @@ defmodule Chat.Proxy.Worker do
     end
   end
 
+  # Handle /L Command
   defp handle_command(socket, "/L", _args) do
     case Chat.Server.list_nicks() do
       [] -> send_line(socket, "no users online")
       nicks -> send_line(socket, "online:\n" <> Enum.join(nicks, "\n"))
     end
+  end
+
+  # Handle /N Command
+  defp handle_command(socket, "/N", [nick | _args]) do
+    case Chat.Server.set_nick(self(), nick) do
+      {:ok, :new} -> send_line(socket, "nickname successfully set to #{nick}")
+      {:ok, :updated} -> send_line(socket, "nickname successfully updated to #{nick}")
+      {:ok, :unchanged} -> send_line(socket, "you already have the nickname #{nick}")
+      {:error, :taken} -> send_line(socket, "#{nick} is already taken please try another")
+    end
+  end
+
+  defp handle_command(socket, "/N", []) do
+    send_line(socket, "usage: /N <nickname>")
   end
 
   # Handle invalid command

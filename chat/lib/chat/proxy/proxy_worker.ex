@@ -73,8 +73,6 @@ defmodule Chat.Proxy.Worker do
       [] -> tell(state, "no users online")
       nicks -> tell(state, "online:\n" <> Enum.join(nicks, "\n"))
     end
-
-    state
   end
 
   # Handle /N Command
@@ -103,7 +101,6 @@ defmodule Chat.Proxy.Worker do
 
   defp handle_command(state, "/N", []) do
     tell(state, "usage: /N <nickname>")
-    state
   end
 
   # Handle calling commands without nickname
@@ -115,7 +112,6 @@ defmodule Chat.Proxy.Worker do
   # Handle invalid command
   defp handle_command(state, cmd, _args) do
     tell(state, "#{cmd} is an invalid command")
-    state
   end
 
   # Send text to client

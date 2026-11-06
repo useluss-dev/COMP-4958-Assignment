@@ -52,7 +52,7 @@ defmodule Chat.Proxy.Worker do
     {:noreply, parse_input(state, data)}
   end
 
-  def handle_info({:tcp_closed, socket}, %State{socket: socket} = state),
+  def handle_info({:tcp_closed, socket}, %State{socket: socket} = _state),
     do: {:stop, :normal, socket}
 
   # Internal

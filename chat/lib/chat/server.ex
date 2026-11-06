@@ -12,14 +12,22 @@ defmodule Chat.Server do
     GenServer.start_link(__MODULE__, nil, name: @name)
   end
 
-  # Client API
+  # API
 
   @spec set_nick(pid(), String.t()) :: set_result()
   def set_nick(pid, nick) do
     GenServer.call(@name, {:set, pid, nick})
   end
 
-  # Server API
+  @spec send_message(pid(), String.t(), String.t()) :: :ok | {:error, :no_nick | :no_such_user}
+  def send_message(from_pid, to_nick, text) do
+    GenServer.call(@name, {:msg, from_pid, to_nick, text})
+  end
+
+  @spec list_nicks() :: [String.t()]
+  def list_nicks, do: GenServer.call(@name, :list_nicks)
+
+  # Callbacks
 
   @impl true
   @spec init(term()) :: {:ok, state()}
@@ -29,13 +37,27 @@ defmodule Chat.Server do
   end
 
   @impl true
-  @spec handle_call({:set, pid(), String.t()}, GenServer.from(), state()) ::
-          {:reply, set_result(), state()}
   def handle_call({:set, pid, nick}, _from, state) do
     {:reply, put_nick(state.nicks, pid, nick), state}
   end
 
-  # Helpers
+  def handle_call({:msg, from_pid, to_nick, text}, _from, state) do
+    reply =
+      with {:ok, from_nick} <- nick_of(state.nick, from_pid),
+           {:ok, to_pid} <- pid_of(state.nick, to_nick) do
+        Chat.Proxy.Worker.deliver(to_pid, "[#{from_nick}] #{text}")
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call(:list_nicks, _from, state) do
+    nicks = state.nicks |> :ets.select([{{:"$1", :_}, [], [:"$1"]}]) |> Enum.sort()
+
+    {:reply, nicks, state}
+  end
+
+  # Internal
 
   @spec put_nick(:ets.table(), pid(), String.t()) :: set_result()
   defp put_nick(table, pid, nick) do
@@ -52,5 +74,19 @@ defmodule Chat.Server do
     :ets.insert(table, {nick, pid})
 
     if had_nick?, do: {:ok, :updated}, else: {:ok, :new}
+  end
+
+  defp pid_of(table, nick) do
+    case :ets.lookup(table, nick) do
+      [{^nick, pid}] -> {:ok, pid}
+      [] -> {:error, :no_such_user}
+    end
+  end
+
+  defp nick_of(table, pid) do
+    case :ets.select(table, [{{:"$1", pid}, [], [:"$1"]}]) do
+      [nick] -> {:ok, nick}
+      [] -> {:error, :no_nick}
+    end
   end
 end

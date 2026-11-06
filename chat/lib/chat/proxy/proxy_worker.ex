@@ -34,6 +34,7 @@ defmodule Chat.Proxy.Worker do
   def init(socket), do: {:ok, %State{socket: socket}}
 
   @impl true
+  # Activates the worker or shuts down on error.
   def handle_cast(:activate, state) do
     case :inet.setopts(state.socket, active: :once) do
       :ok -> {:noreply, state}
@@ -41,17 +42,20 @@ defmodule Chat.Proxy.Worker do
     end
   end
 
+  # Sends message provided by caller to the client.
   def handle_cast({:deliver, text}, state) do
     send_line(state.socket, text)
     {:noreply, state}
   end
 
   @impl true
+  # Takes data from client and sends it to parse_input()
   def handle_info({:tcp, socket, data}, %State{socket: socket} = state) do
     :inet.setopts(socket, active: :once)
     {:noreply, parse_input(state, data)}
   end
 
+  # Handles connection closing.
   def handle_info({:tcp_closed, socket}, %State{socket: socket} = _state),
     do: {:stop, :normal, socket}
 
@@ -69,6 +73,7 @@ defmodule Chat.Proxy.Worker do
   end
 
   # /L
+  # Lists the online nicknames
   defp handle_command(state, "/L", _args) do
     case Chat.Server.list_nicks() do
       [] -> tell(state, "no users online")
@@ -77,6 +82,7 @@ defmodule Chat.Proxy.Worker do
   end
 
   # /N <nickname>
+  # Sets the clients nickname
   defp handle_command(%State{} = state, "/N", [nick | _args]) do
     if valid_nick?(nick) do
       case Chat.Server.set_nick(self(), nick) do
@@ -102,13 +108,14 @@ defmodule Chat.Proxy.Worker do
 
   defp handle_command(state, "/N", []), do: tell(state, "usage: /N <nickname>")
 
-  # Handle calling commands without nickname
+  # Handle calling commands without nickname.
   defp handle_command(%State{nick: nil} = state, cmd, _args)
        when cmd in ["/M", "/B", "/D", "/G"] do
-    tell(state, "set a nickname first with /N <nickname")
+    tell(state, "set a nickname first with /N <nickname>")
   end
 
   # /M <name[,name...]> <message>
+  # Sends message to a user or group of users.
   defp handle_command(%State{} = state, "/M", [to | words]) when words != [] do
     send_to(state, expand(state.groups, split_names(to)), Enum.join(words, " "))
   end
@@ -117,6 +124,7 @@ defmodule Chat.Proxy.Worker do
     do: tell(state, "usage: /M <name[,name...]> <message>")
 
   # /G <Group> <name[,name...]>   (replaces the group's members)
+  # Creates/updates groups with a list of users
   defp handle_command(%State{} = state, "/G", [group, members | _]) do
     if valid_group?(group) do
       case resolve(state.groups, split_names(members)) do
@@ -139,6 +147,7 @@ defmodule Chat.Proxy.Worker do
     do: tell(state, "usage: /G <Group> <name[,name...]>")
 
   # /D <name[,name...]>
+  # Adds users to the default group.
   defp handle_command(%State{} = state, "/D", [members | _]) do
     case resolve(state.groups, split_names(members)) do
       {:ok, nicks} ->
@@ -154,13 +163,14 @@ defmodule Chat.Proxy.Worker do
     do: tell(state, "usage: /D <name[,name...]>")
 
   # /B <message>
+  # Broadcasts a message to all users in the default group.
   defp handle_command(%State{} = state, "/B", words) when words != [] do
     send_to(state, Map.get(state.groups, "default", []), Enum.join(words, " "))
   end
 
   defp handle_command(%State{} = state, "/B", []), do: tell(state, "usage: /B <message>")
 
-  # Handle invalid command
+  # Handle invalid commands.
   defp handle_command(state, cmd, _args), do: tell(state, "#{cmd} is an invalid command")
 
   # Send text to client
@@ -187,9 +197,11 @@ defmodule Chat.Proxy.Worker do
   @spec valid_group?(String.t()) :: boolean()
   defp valid_group?(name), do: name =~ @group_regex
 
+  # Split group of names by ','
   @spec split_names(String.t()) :: [String.t()]
   defp split_names(list), do: String.split(list, ",", trim: true)
 
+  # Expands a group name into a list of names to be taken by the /M and /B commands.
   @spec expand(State.groups(), [String.t()]) :: [String.t()]
   defp expand(groups, names) do
     names
@@ -199,6 +211,7 @@ defmodule Chat.Proxy.Worker do
     |> Enum.uniq()
   end
 
+  # Resolves a given group and the nicknames provided to ensure they exist before expansion.
   @spec resolve(State.groups(), [String.t()]) :: {:ok, [String.t()]} | {:error, String.t()}
   defp resolve(groups, names) do
     case Enum.find(names, &(not valid_nick?(&1) and not valid_group?(&1))) do
@@ -207,6 +220,7 @@ defmodule Chat.Proxy.Worker do
     end
   end
 
+  # Sends a message to the list of users.
   # Note: nicknames without a pid are silently skipped
   @spec send_to(State.t(), [String.t()], String.t()) :: State.t()
   defp send_to(%State{} = state, nicks, text) do

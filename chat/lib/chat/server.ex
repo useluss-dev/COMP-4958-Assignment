@@ -38,12 +38,14 @@ defmodule Chat.Server do
   end
 
   @impl true
+  # Places nickname into table if possible. Monitors the pid once added to the table.
   def handle_call({:set, pid, nick}, _from, state) do
     result = put_nick(state.nicks, pid, nick)
     if result == {:ok, :new}, do: Process.monitor(pid)
     {:reply, result, state}
   end
 
+  # Sends a message from a given pid to the list of other users by nickname.
   def handle_call({:msg, from_pid, to_nicks, text}, _from, state) do
     reply =
       with {:ok, from_nick} <- nick_of(state.nicks, from_pid) do
@@ -53,6 +55,7 @@ defmodule Chat.Server do
     {:reply, reply, state}
   end
 
+  # Gets the list of all nicknames in the table.
   def handle_call(:list_nicks, _from, state) do
     nicks = state.nicks |> :ets.select([{{:"$1", :_}, [], [:"$1"]}]) |> Enum.sort()
 
@@ -60,6 +63,7 @@ defmodule Chat.Server do
   end
 
   @impl true
+  # Handles a client disconnecting. Removes them from the nicknames map.
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     :ets.select_delete(state.nicks, [{{:_, pid}, [], [true]}])
     {:noreply, state}
@@ -67,6 +71,7 @@ defmodule Chat.Server do
 
   # Internal
 
+  # Delivers a given message to all users with matching nicknames. Nicknames not in the table get skipped.
   @spec deliver_all(:ets.table(), [String.t()], String.t()) :: :ok
   defp deliver_all(table, nicks, message) do
     for nick <- Enum.uniq(nicks), {:ok, pid} <- [pid_of(table, nick)] do
@@ -76,6 +81,7 @@ defmodule Chat.Server do
     :ok
   end
 
+  # Puts a nickname into the table.
   @spec put_nick(:ets.table(), pid(), String.t()) :: set_result()
   defp put_nick(table, pid, nick) do
     case :ets.lookup(table, nick) do
@@ -85,6 +91,7 @@ defmodule Chat.Server do
     end
   end
 
+  # Claims a nickname for a given pid if available.
   @spec claim_nick(:ets.table(), pid(), String.t()) :: {:ok, :new | :updated}
   defp claim_nick(table, pid, nick) do
     had_nick? = :ets.select_delete(table, [{{:_, pid}, [], [true]}]) > 0
@@ -93,6 +100,7 @@ defmodule Chat.Server do
     if had_nick?, do: {:ok, :updated}, else: {:ok, :new}
   end
 
+  # Gets the pid of a nickname from the nicks table.
   @spec pid_of(:ets.table(), String.t()) :: {:ok, pid()} | {:error, :no_such_user}
   defp pid_of(table, nick) do
     case :ets.lookup(table, nick) do
@@ -101,6 +109,7 @@ defmodule Chat.Server do
     end
   end
 
+  # Gets the nickname of a given pid from the nicks table.
   @spec nick_of(:ets.table(), pid()) :: {:ok, String.t()} | {:error, :no_nick}
   defp nick_of(table, pid) do
     case :ets.select(table, [{{:"$1", pid}, [], [:"$1"]}]) do

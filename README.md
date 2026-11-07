@@ -8,12 +8,12 @@ The chat server works by running a core server + a proxy on two different nodes.
 
 ## Commands
 
-`/L` -> Lists all of the currently online users.
-`/N <nickname>` -> Sets your nickname. Setting your nickname is required to designate you as online commands other than `/L` and `/N` cannot be used without first setting a nickname.
-`/M <name[,name...]> <message>` -> Send a message to a user or list of users.
-`/G <group-name> <name[,name...]>` -> Creates or updates a group of users. Group names can be used anywhere names can be used.
-`/D <name[,name...]>` -> Updates the users in the default group.
-`/B <message>` -> Broadcasts a message to user in the default group.
+- `/L` -> Lists all of the currently online users.
+- `/N <nickname>` -> Sets your nickname. Setting your nickname is required to designate you as online commands other than `/L` and `/N` cannot be used without first setting a nickname.
+- `/M <name[,name...]> <message>` -> Send a message to a user or list of users.
+- `/G <group-name> <name[,name...]>` -> Creates or updates a group of users. Group names can be used anywhere names can be used.
+- `/D <name[,name...]>` -> Updates the users in the default group.
+- `/B <message>` -> Broadcasts a message to user in the default group.
 
 ## How To Run
 
